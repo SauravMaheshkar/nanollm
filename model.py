@@ -179,6 +179,17 @@ class NanoLLM(nnx.Module):
         checkpointer = ocp.PyTreeCheckpointer()
         checkpointer.save(f"{path}/nanollm", state)
 
+    def load(self, path: str) -> "NanoLLM":
+        """Loads the model state from a directory.
+
+        Args:
+            path: The directory path to load the model state from.
+        """
+        checkpointer = ocp.PyTreeCheckpointer()
+        state = checkpointer.restore(f"{path}/nanollm", item=nnx.state(self))
+        nnx.update(self, state)
+        return self
+
     def generate(self):
         """
         TODO(@saurav): Implement method to generate text.
