@@ -1,5 +1,3 @@
-import os
-
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint as ocp
@@ -177,23 +175,9 @@ class NanoLLM(nnx.Module):
         Args:
             path: The directory path to save the model state to.
         """
-        state = self.state_dict
-        checkpointer = ocp.StandardCheckpointer()
-        checkpointer.save(os.path.join(path, "nanogpt-nnx"), state)
-        checkpointer.wait_until_finished()
-
-    def load(self, path: str) -> nnx.Module:
-        """Loads the model state from a directory.
-
-        Args:
-            path: The directory path to load the model state from.
-        """
-        checkpointer = ocp.StandardCheckpointer()
-        restored_pure_dict = checkpointer.restore(path)
-        abstract_model = nnx.eval_shape(lambda: self)
-        graphdef, abstract_state = nnx.split(abstract_model)
-        nnx.replace_by_pure_dict(abstract_state, restored_pure_dict)
-        return nnx.merge(graphdef, abstract_state)
+        state = nnx.state(self)
+        checkpointer = ocp.PyTreeCheckpointer()
+        checkpointer.save(f"{path}/nanollm", state)
 
     def generate(self):
         """

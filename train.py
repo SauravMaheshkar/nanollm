@@ -1,4 +1,5 @@
 import dataclasses
+import os
 
 import jax
 import optax
@@ -34,6 +35,9 @@ def train_step(
 
 
 def train_and_evaluate(config: default.Config, workdir: str) -> None:
+    # Convert workdir to absolute path
+    workdir = os.path.abspath(workdir)
+
     if config.use_wandb:
         import wandb
 
