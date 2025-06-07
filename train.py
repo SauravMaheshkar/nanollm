@@ -109,4 +109,7 @@ def train_and_evaluate(config: default.Config, workdir: str) -> None:
                         {"train_loss": metrics_history["train_loss"][-1]}, step=i + 1
                     )
 
-    model.save(workdir)
+    if config.use_wandb:
+        model.push_to_wandb("nanollm", workdir, dataclasses.asdict(config))
+    else:
+        model.save(workdir)
