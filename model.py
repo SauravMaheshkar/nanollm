@@ -2,6 +2,7 @@ import jax
 import jax.numpy as jnp
 import orbax.checkpoint as ocp
 from flax import nnx
+from jaxtyping import Array, Float
 
 
 class MLP(nnx.Module):
@@ -27,11 +28,13 @@ class MLP(nnx.Module):
         )
         self.dropout = nnx.Dropout(dropout_rate, rngs=rngs)
 
-    def __call__(self, x: jax.Array) -> jax.Array:
-        x = self.input_linear(x)
+    def __call__(
+        self, x: Float[Array, "batch seq_len embed_size"]
+    ) -> Float[Array, "batch seq_len embed_size"]:
+        x = self.input_linear(x)  # shape: (batch, seq_len, 4 * embed_size)
         x = nnx.relu(x)
         x = self.dropout(x)
-        x = self.output_linear(x)
+        x = self.output_linear(x)  # shape: (batch, seq_len, embed_size)
         return x
 
 
@@ -70,15 +73,17 @@ class TransformerBlock(nnx.Module):
             dropout_rate=dropout_rate,
         )
 
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def __call__(
+        self, x: Float[Array, "batch seq_len embed_size"]
+    ) -> Float[Array, "batch seq_len embed_size"]:
         batch_size, seq_len = x.shape[:2]
 
         # Create causal attention mask
-        # Shape: (seq_len, seq_len)
+        # shape: (seq_len, seq_len)
         mask = jnp.tril(jnp.ones((seq_len, seq_len)))
-        # Shape: (batch_size, num_heads, seq_len, seq_len)
         mask = jnp.expand_dims(mask, axis=(0, 1))
         mask = jnp.broadcast_to(mask, (batch_size, self.num_heads, seq_len, seq_len))
+        # shape: (batch_size, num_heads, seq_len, seq_len)
 
         x_norm = self.pre_norm(x)
         attn_outputs = self.attn(x_norm, x_norm, mask=mask, decode=False)
@@ -86,7 +91,6 @@ class TransformerBlock(nnx.Module):
 
         x = self.post_norm(x)
         x = x + self.mlp(x)
-
         return x
 
 
@@ -135,13 +139,15 @@ class NanoLLM(nnx.Module):
             in_features=self.embed_size, out_features=self.vocab_size, rngs=rngs
         )
 
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def __call__(
+        self, x: Float[Array, "batch seq_len"]
+    ) -> Float[Array, "batch seq_len vocab_size"]:
         seq_len = x.shape[1]
-        positions = jnp.arange(seq_len)
+        positions = jnp.arange(seq_len)  # shape: (seq_len, )
 
         # ==== Embeddings ====
-        position_emb = self.pos_emb(positions)
-        token_emb = self.token_emb(x)
+        position_emb = self.pos_emb(positions)  # shape: (seq_len, embed_size)
+        token_emb = self.token_emb(x)  # shape: (batch, seq_len, embed_size)
         x = token_emb + position_emb
 
         # ==== Transformer Blocks ====
@@ -149,6 +155,7 @@ class NanoLLM(nnx.Module):
             x = block(x)
 
         # ==== Output Layer ====
+        # shape: (batch, seq_len, vocab_size)
         return self.output_layer(x)
 
     @property
