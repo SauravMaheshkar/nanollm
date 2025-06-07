@@ -1,3 +1,6 @@
+import inspect
+from typing import Any
+
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint as ocp
@@ -176,7 +179,7 @@ class NanoLLM(nnx.Module):
     def num_params(self) -> int:
         return sum(p.size for p in jax.tree.leaves(self.state))
 
-    def save(self, path: str) -> None:
+    def save(self, path: str, **kwargs) -> None:
         """Saves the model state to a directory.
 
         Args:
@@ -184,7 +187,33 @@ class NanoLLM(nnx.Module):
         """
         state = nnx.state(self)
         checkpointer = ocp.PyTreeCheckpointer()
-        checkpointer.save(f"{path}/nanollm", state)
+        checkpointer.save(f"{path}/nanollm", state, **kwargs)
+
+    def push_to_wandb(
+        self, artifact_name: str, save_path: str, metadata: dict[str, Any]
+    ) -> None:
+        """Pushes the model ckpt to wandb.
+
+        Args:
+            artifact_name: The name of the artifact to push to wandb.
+            save_path: The path to save the model ckpt to.
+            metadata: The metadata to push to wandb.
+        """
+        import wandb
+
+        if not wandb.run:
+            wandb.init(project="nanollm", job_type="upload-model")
+
+        metadata = {**metadata, "vocab_size": self.vocab_size}
+
+        artifact = wandb.Artifact(artifact_name, type="model", metadata=metadata)
+        self.save(
+            path=save_path,
+            force=True,
+            custom_metadata=metadata,
+        )
+        artifact.add_dir(save_path)
+        wandb.log_artifact(artifact)
 
     def load(self, path: str) -> "NanoLLM":
         """Loads the model state from a directory.
@@ -196,6 +225,37 @@ class NanoLLM(nnx.Module):
         state = checkpointer.restore(f"{path}/nanollm", item=nnx.state(self))
         nnx.update(self, state)
         return self
+
+    @classmethod
+    def from_wandb_artifact(cls, artifact_name: str) -> "NanoLLM":
+        """Loads a model ckpt from a wandb artifact.
+
+        Args:
+            artifact_name: The name of the artifact to load the model ckpt from.
+
+        Example:
+            ```python
+            model = NanoLLM.from_wandb_artifact("sauravmaheshkar/nanollm/nanollm:v0")
+            ```
+        """
+        import wandb
+
+        api = wandb.Api()
+        artifact = api.artifact(artifact_name)
+        artifact_dir = artifact.download()
+
+        init_params = inspect.signature(cls.__init__).parameters.keys()
+        config = {k: v for k, v in {**artifact.metadata}.items() if k in init_params}
+
+        rngs = nnx.Rngs(0)
+        dummy_model = cls(rngs=rngs, **config)
+
+        checkpointer = ocp.PyTreeCheckpointer()
+        state = checkpointer.restore(
+            f"{artifact_dir}/nanollm", item=nnx.state(dummy_model)
+        )
+        nnx.update(dummy_model, state)
+        return dummy_model
 
     def generate(self):
         """
