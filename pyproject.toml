@@ -6,6 +6,7 @@ dependencies = [
     "clu>=0.0.12",
     "datasets>=3.6.0",
     "flax>=0.10.6",
+    "huggingface-hub>=0.32.4",
     "jaxtyping>=0.3.2",
     "ml-collections>=1.1.0",
     "wandb>=0.20.1",
