@@ -33,6 +33,10 @@ class Config:
     wandb_project: str = "nanollm"
     # weights and biases entity
     wandb_entity: str | None = None
+    # whether to push model to hugging face hub
+    push_to_hub: bool = False
+    # hugging face hub repository id
+    repo_id: str | None = None
 
     def replace(self, **kwargs):
         return dataclasses.replace(self, **kwargs)

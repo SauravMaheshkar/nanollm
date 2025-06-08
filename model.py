@@ -1,10 +1,12 @@
 import inspect
-from typing import Any
+import json
+from typing import Any, Optional
 
 import jax
 import jax.numpy as jnp
 import orbax.checkpoint as ocp
 from flax import nnx
+from huggingface_hub import HfApi, hf_hub_download
 from jaxtyping import Array, Float
 
 
@@ -215,6 +217,46 @@ class NanoLLM(nnx.Module):
         artifact.add_dir(save_path)
         wandb.log_artifact(artifact)
 
+    def push_to_hub(
+        self,
+        repo_id: str,
+        save_path: str,
+        metadata: dict[str, Any],
+        commit_message: str = "Upload model",
+        token: Optional[str] = None,
+    ) -> None:
+        """Pushes the model and config to the Hugging Face Hub.
+
+        Args:
+            repo_id: The repository ID on the Hugging Face Hub
+                (e.g. "SauravMaheshkar/nanollm")
+            save_path: Local path to temporarily save the model
+            metadata: Additional metadata to include in the config
+            commit_message: Message for the commit
+            token: Hugging Face API token.
+        """
+        self.save(path=save_path, force=True)
+
+        config = {**metadata, "vocab_size": self.vocab_size}
+
+        config_path = f"{save_path}/config.json"
+        with open(config_path, "w") as f:
+            json.dump(config, f, indent=2)
+
+        api = HfApi(token=token)
+
+        try:
+            api.create_repo(repo_id=repo_id, repo_type="model", exist_ok=True)
+        except Exception as e:
+            print(f"Note: Could not create repo: {e}")
+
+        api.upload_folder(
+            folder_path=save_path,
+            repo_id=repo_id,
+            repo_type="model",
+            commit_message=commit_message,
+        )
+
     def load(self, path: str) -> "NanoLLM":
         """Loads the model state from a directory.
 
@@ -254,6 +296,59 @@ class NanoLLM(nnx.Module):
         state = checkpointer.restore(
             f"{artifact_dir}/nanollm", item=nnx.state(dummy_model)
         )
+        nnx.update(dummy_model, state)
+        return dummy_model
+
+    @classmethod
+    def load_pretrained(
+        cls,
+        repo_id: str,
+        save_path: Optional[str] = "artifacts",
+        token: Optional[str] = None,
+    ) -> "NanoLLM":
+        """Loads a pretrained model from the Hugging Face Hub.
+
+        Args:
+            repo_id: The repository ID on the Hugging Face Hub
+                (e.g. "SauravMaheshkar/nanollm")
+            save_path: Local path to save the downloaded model
+            token: Hugging Face API token.
+
+        Example:
+        ```python
+        model = NanoLLM.load_pretrained("SauravMaheshkar/nanollm")
+        ```
+        """
+        import os
+
+        save_path = os.path.abspath(save_path)
+        os.makedirs(save_path, exist_ok=True)
+
+        config_path = hf_hub_download(
+            repo_id=repo_id,
+            filename="config.json",
+            repo_type="model",
+            token=token,
+        )
+        with open(config_path, "r") as f:
+            config = json.load(f)
+
+        init_params = inspect.signature(cls.__init__).parameters.keys()
+        config = {k: v for k, v in config.items() if k in init_params}
+
+        api = HfApi(token=token)
+        api.snapshot_download(
+            repo_id=repo_id,
+            repo_type="model",
+            local_dir=save_path,
+            token=token,
+        )
+
+        rngs = nnx.Rngs(0)
+        dummy_model = cls(rngs=rngs, **config)
+
+        checkpointer = ocp.PyTreeCheckpointer()
+        state = checkpointer.restore(f"{save_path}/nanollm", item=nnx.state(dummy_model))
         nnx.update(dummy_model, state)
         return dummy_model
 

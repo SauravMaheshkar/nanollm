@@ -1,10 +1,24 @@
 JAX LLM playground 
 
 ```shell
+python main.py --workdir=artifacts/
+```
+
+Log training data and model checkpoints to wandb
+
+```shell
 python main.py --workdir=artifacts/ \
     --config.use_wandb \
     --config.wandb_project=nanollm \
     --config.wandb_entity=sauravmaheshkar
+```
+
+Log model checkpoints to huggingface
+
+```shell
+python main.py --workdir=artifacts/ \
+    --config.push_to_hub \
+    --config.repo_id="SauravMaheshkar/nanollm"
 ```
 
 ### References
