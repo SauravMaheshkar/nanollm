@@ -1,4 +1,4 @@
-<a href="https://colab.research.google.com/github/SauravMaheshkar/nanollm/blob/main/notebooks/nanollm_tiny_shakespeare.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
+<a href="https://colab.research.google.com/github/SauravMaheshkar/nanollm/blob/main/notebooks/nanollm_tiny_shakespeare.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a> [![CI/CD](https://github.com/SauravMaheshkar/nanollm/actions/workflows/ci.yml/badge.svg)](https://github.com/SauravMaheshkar/nanollm/actions/workflows/ci.yml)
 
 JAX LLM playground
 
