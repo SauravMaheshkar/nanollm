@@ -1,4 +1,14 @@
-JAX LLM playground 
+<a href="https://colab.research.google.com/github/SauravMaheshkar/nanollm/blob/main/notebooks/nanollm_tiny_shakespeare.ipynb" target="_parent"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"/></a>
+
+JAX LLM playground
+
+### Setup
+
+```shell
+uv sync --all-groups
+```
+
+### Getting started
 
 ```shell
 python main.py --workdir=artifacts/
