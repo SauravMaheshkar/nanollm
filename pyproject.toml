@@ -6,10 +6,8 @@ dependencies = [
     "clu>=0.0.12",
     "datasets>=3.6.0",
     "flax>=0.10.6",
-    "huggingface-hub>=0.32.4",
     "jaxtyping>=0.3.2",
     "ml-collections>=1.1.0",
-    "wandb>=0.20.1",
 ]
 
 [tool.ruff]
@@ -21,3 +19,15 @@ ignore = ["F722"]
 
 [tool.ruff.lint.isort]
 lines-after-imports = 2
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "ruff>=0.11.13",
+]
+hf = [
+    "huggingface-hub>=0.32.4",
+]
+wandb = [
+    "wandb>=0.20.1",
+]
