@@ -10,6 +10,19 @@ dependencies = [
     "ml-collections>=1.1.0",
 ]
 
+[dependency-groups]
+dev = [
+    "pre-commit>=4.2.0",
+    "pytest>=8.4.0",
+    "ruff>=0.11.13",
+]
+hf = [
+    "huggingface-hub>=0.32.4",
+]
+wandb = [
+    "wandb>=0.20.1",
+]
+
 [tool.ruff]
 line-length = 90
 
@@ -20,14 +33,8 @@ ignore = ["F722"]
 [tool.ruff.lint.isort]
 lines-after-imports = 2
 
-[dependency-groups]
-dev = [
-    "pre-commit>=4.2.0",
-    "ruff>=0.11.13",
-]
-hf = [
-    "huggingface-hub>=0.32.4",
-]
-wandb = [
-    "wandb>=0.20.1",
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "sharding: tests related to model sharding"
 ]
