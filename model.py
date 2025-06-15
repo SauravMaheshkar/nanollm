@@ -4,10 +4,32 @@ from typing import Any, Optional, Tuple
 
 import jax
 import jax.numpy as jnp
+import jax.sharding as shd
 import orbax.checkpoint as ocp
 from flax import nnx
 from huggingface_hub import HfApi, hf_hub_download
+from jax.interpreters import pxla
 from jaxtyping import Array, Float
+
+from configs.sharding import ShardingConfig
+
+
+def shard(x: jnp.ndarray, s: Tuple[str, ...]):
+    """Apply sharding constraint to an array.
+
+    Args:
+        x: Input array to shard
+        s: Sharding specification tuple
+
+    Returns:
+        Sharded array
+    """
+    mesh = pxla.thread_resources.env.physical_mesh
+    if mesh.empty or jax.devices()[0].platform == "cpu":
+        return x
+    return jax.lax.with_sharding_constraint(
+        x, shd.NamedSharding(mesh, shd.PartitionSpec(*s))
+    )
 
 
 class MLP(nnx.Module):
@@ -16,32 +38,30 @@ class MLP(nnx.Module):
         rngs: nnx.Rngs,
         embed_size: int,
         dropout_rate: float,
-        sharding_rules: Optional[Tuple[Tuple[str, str], ...]] = None,
+        shd_config: ShardingConfig,
     ) -> None:
         self.embed_size = embed_size
         self.dropout_rate = dropout_rate
-        self.sharding_rules = sharding_rules
+        self.shd_config = shd_config
 
         # ==== Layers ====
-        # Shard the input linear layer: (embed_size, 4*embed_size)
-        # Use (None, 'model') to shard across model dimension
+        # Input linear layer: (embed_size, 4*embed_size)
         self.input_linear = nnx.Linear(
             in_features=embed_size,
             out_features=4 * embed_size,
             kernel_init=nnx.with_partitioning(
-                nnx.initializers.lecun_normal(), (None, "model")
+                nnx.initializers.lecun_normal(), self.shd_config.linear_in_df
             ),
-            bias_init=nnx.with_partitioning(nnx.initializers.zeros, ("model",)),
+            bias_init=nnx.with_partitioning(nnx.initializers.zeros, (None,)),
             rngs=rngs,
         )
 
-        # Shard the output linear layer: (4*embed_size, embed_size)
-        # Use ('model', None) to shard across model dimension
+        # Output linear layer: (4*embed_size, embed_size)
         self.output_linear = nnx.Linear(
             in_features=4 * embed_size,
             out_features=embed_size,
             kernel_init=nnx.with_partitioning(
-                nnx.initializers.lecun_normal(), ("model", None)
+                nnx.initializers.lecun_normal(), self.shd_config.linear_out_fd
             ),
             bias_init=nnx.with_partitioning(nnx.initializers.zeros, (None,)),
             rngs=rngs,
@@ -54,6 +74,7 @@ class MLP(nnx.Module):
         x = self.input_linear(x)  # shape: (batch, seq_len, 4 * embed_size)
         x = nnx.relu(x)
         x = self.dropout(x)
+        x = shard(x, self.shd_config.act_btf)  # Shard activations
         x = self.output_linear(x)  # shape: (batch, seq_len, embed_size)
         return x
 
@@ -66,16 +87,15 @@ class TransformerBlock(nnx.Module):
         head_size: int,
         dropout_rate: float,
         embed_size: int,
-        sharding_rules: Optional[Tuple[Tuple[str, str], ...]] = None,
+        shd_config: ShardingConfig,
     ) -> None:
         self.num_heads = num_heads
         self.head_size = head_size
         self.dropout_rate = dropout_rate
         self.embed_size = embed_size
-        self.sharding_rules = sharding_rules
+        self.shd_config = shd_config
 
         # ==== Attention Layer ====
-        # Shard attention weights across model dimension
         self.attn = nnx.MultiHeadAttention(
             num_heads=self.num_heads,
             in_features=embed_size,
@@ -83,23 +103,37 @@ class TransformerBlock(nnx.Module):
             out_features=embed_size,
             dropout_rate=self.dropout_rate,
             kernel_init=nnx.with_partitioning(
-                nnx.initializers.lecun_normal(), (None, "model")
+                nnx.initializers.lecun_normal(), self.shd_config.attn_weight_dd
             ),
-            bias_init=nnx.with_partitioning(nnx.initializers.zeros, ("model",)),
+            bias_init=nnx.with_partitioning(nnx.initializers.zeros, (None,)),
             rngs=rngs,
         )
 
         # ==== Normalization Layers ====
-        # LayerNorm parameters are typically not sharded
-        self.pre_norm = nnx.LayerNorm(num_features=embed_size, use_bias=False, rngs=rngs)
-        self.post_norm = nnx.LayerNorm(num_features=embed_size, use_bias=False, rngs=rngs)
+        # LayerNorm parameters with sharding
+        self.pre_norm = nnx.LayerNorm(
+            num_features=embed_size,
+            use_bias=False,
+            rngs=rngs,
+            scale_init=nnx.with_partitioning(
+                nnx.initializers.ones, self.shd_config.layer_norm_d
+            ),
+        )
+        self.post_norm = nnx.LayerNorm(
+            num_features=embed_size,
+            use_bias=False,
+            rngs=rngs,
+            scale_init=nnx.with_partitioning(
+                nnx.initializers.ones, self.shd_config.layer_norm_d
+            ),
+        )
 
         # ==== MLP Layer ====
         self.mlp = MLP(
             rngs=rngs,
             embed_size=embed_size,
             dropout_rate=dropout_rate,
-            sharding_rules=sharding_rules,
+            shd_config=shd_config,
         )
 
     def __call__(
@@ -115,9 +149,15 @@ class TransformerBlock(nnx.Module):
         # shape: (batch_size, num_heads, seq_len, seq_len)
 
         x_norm = self.pre_norm(x)
+        x_norm = shard(x_norm, self.shd_config.act_btd)  # Shard normalized activations
+
         attn_outputs = self.attn(
             x_norm, x_norm, mask=mask, decode=False, deterministic=False
         )
+        attn_outputs = shard(
+            attn_outputs, self.shd_config.act_btd
+        )  # Shard attention outputs
+
         x = x + attn_outputs
 
         x = self.post_norm(x)
@@ -136,7 +176,7 @@ class NanoLLM(nnx.Module):
         dropout_rate: float = 0.2,
         embed_size: int = 256,
         sequence_length: int = 64,
-        sharding_rules: Optional[Tuple[Tuple[str, str], ...]] = None,
+        shd_config: ShardingConfig = ShardingConfig.get_default_sharding(),
     ) -> None:
         self.vocab_size = vocab_size
         self.num_layers = num_layers
@@ -145,14 +185,14 @@ class NanoLLM(nnx.Module):
         self.dropout_rate = dropout_rate
         self.embed_size = embed_size
         self.sequence_length = sequence_length
-        self.sharding_rules = sharding_rules
+        self.shd_config = shd_config
 
         # ==== Embedding Layers ====
         self.token_emb = nnx.Embed(
             num_embeddings=self.vocab_size,
             features=self.embed_size,
             embedding_init=nnx.with_partitioning(
-                nnx.initializers.normal(stddev=0.02), (None, "model")
+                nnx.initializers.normal(stddev=0.02), self.shd_config.emb_vd
             ),
             rngs=rngs,
         )
@@ -173,7 +213,7 @@ class NanoLLM(nnx.Module):
                 head_size=self.head_size,
                 dropout_rate=self.dropout_rate,
                 embed_size=self.embed_size,
-                sharding_rules=sharding_rules,
+                shd_config=shd_config,
             )
             for _ in range(self.num_layers)
         ]
@@ -184,7 +224,7 @@ class NanoLLM(nnx.Module):
             in_features=self.embed_size,
             out_features=self.vocab_size,
             kernel_init=nnx.with_partitioning(
-                nnx.initializers.lecun_normal(), ("model", None)
+                nnx.initializers.lecun_normal(), self.shd_config.linear_out_fd
             ),
             bias_init=nnx.with_partitioning(nnx.initializers.zeros, (None,)),
             rngs=rngs,
@@ -200,6 +240,7 @@ class NanoLLM(nnx.Module):
         position_emb = self.pos_emb(positions)  # shape: (seq_len, embed_size)
         token_emb = self.token_emb(x)  # shape: (batch, seq_len, embed_size)
         x = token_emb + position_emb
+        x = shard(x, self.shd_config.act_btd)  # Shard embeddings
 
         # ==== Transformer Blocks ====
         for block in self.blocks:

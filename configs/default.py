@@ -1,5 +1,7 @@
 import dataclasses
 
+from .sharding import ShardingConfig
+
 
 @dataclasses.dataclass(unsafe_hash=True)
 class Config:
@@ -37,6 +39,8 @@ class Config:
     push_to_hub: bool = False
     # hugging face hub repository id
     repo_id: str | None = None
+    # sharding configuration
+    sharding_config: ShardingConfig = ShardingConfig.get_default_sharding()
 
     def replace(self, **kwargs):
         return dataclasses.replace(self, **kwargs)
