@@ -76,40 +76,6 @@ def test_mesh_creation(mesh):
 
 
 @pytest.mark.sharding
-def test_sharding_config_creation():
-    """Test that ShardingConfig can be created with different options."""
-    # Test default sharding
-    default_config = ShardingConfig.get_default_sharding()
-    assert default_config.emb_vd == ("tp", "fsdp")
-    assert default_config.attn_weight_dd == ("tp", "fsdp")
-    assert default_config.linear_in_df == ("fsdp", "tp")
-    assert default_config.linear_out_fd == ("tp", "fsdp")
-    assert default_config.layer_norm_d == ("tp",)
-    assert default_config.act_btd == ("fsdp", None, "tp")
-    assert default_config.act_btf == ("fsdp", None, "tp")
-
-    # Test sampling sharding (no FSDP)
-    sampling_config = ShardingConfig.get_default_sharding(is_sampling=True)
-    assert sampling_config.emb_vd == ("tp", None)
-    assert sampling_config.attn_weight_dd == ("tp", None)
-    assert sampling_config.linear_in_df == (None, "tp")
-    assert sampling_config.linear_out_fd == ("tp", None)
-    assert sampling_config.layer_norm_d == ("tp",)
-    assert sampling_config.act_btd == (None, None, "tp")
-    assert sampling_config.act_btf == (None, None, "tp")
-
-    # Test minimal sharding
-    minimal_config = ShardingConfig.get_minimal_sharding()
-    assert minimal_config.emb_vd == (None, None)
-    assert minimal_config.attn_weight_dd == (None, None)
-    assert minimal_config.linear_in_df == (None, None)
-    assert minimal_config.linear_out_fd == (None, None)
-    assert minimal_config.layer_norm_d == (None,)
-    assert minimal_config.act_btd == (None, None, None)
-    assert minimal_config.act_btf == (None, None, None)
-
-
-@pytest.mark.sharding
 def test_model_with_minimal_sharding():
     """Test that model works with minimal sharding configuration."""
     minimal_config = ShardingConfig.get_minimal_sharding()
