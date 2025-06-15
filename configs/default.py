@@ -1,6 +1,6 @@
 import dataclasses
 
-from .sharding import ShardingConfig
+from configs.sharding import ShardingConfig
 
 
 @dataclasses.dataclass(unsafe_hash=True)
