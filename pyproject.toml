@@ -26,6 +26,7 @@ wandb = [
 
 [tool.ruff]
 line-length = 90
+extend-exclude = ["*.ipynb"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I001"]
