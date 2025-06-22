@@ -9,6 +9,7 @@ from flax import nnx
 from configs import default
 from input_pipeline import get_datasets
 from model import NanoLLM
+from opt_factory import get_optimizer
 
 
 def loss_fn(
@@ -79,7 +80,7 @@ def train_and_evaluate(config: default.Config, workdir: str) -> None:
     if config.use_wandb:
         wandb.summary["num_params"] = model.num_params
 
-    optimizer = nnx.Optimizer(model, optax.adamw(config.learning_rate, nesterov=True))
+    optimizer = get_optimizer(model, config.learning_rate, nesterov=True)
     metrics = nnx.MultiMetric(
         loss=nnx.metrics.Average("loss"),
     )
