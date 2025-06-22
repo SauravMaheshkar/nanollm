@@ -8,6 +8,7 @@ dependencies = [
     "flax>=0.10.6",
     "jaxtyping>=0.3.2",
     "ml-collections>=1.1.0",
+    "optax>=0.2.5",
 ]
 
 [dependency-groups]
